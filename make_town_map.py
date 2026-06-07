@@ -9,6 +9,7 @@ from pathlib import Path
 import contextily as cx
 import matplotlib.pyplot as plt
 import pandas as pd
+from geopy.exc import GeocoderRateLimited
 from geopy.geocoders import Nominatim
 from pyproj import Transformer
 
@@ -20,7 +21,7 @@ HARBOUR_PAGES_DIR = SCRIPT_DIR.parent / "download-website-tmp" / "html_pages"
 OUTPUT_PNG = SCRIPT_DIR / "towns_map.png"
 OUTPUT_PDF = SCRIPT_DIR / "towns_map.pdf"
 
-TITLE = "Towns in Southern Denmark and Schleswig-Holstein"
+TITLE = ".."
 FIG_HEIGHT = 12
 DPI = 250
 PADDING_FRACTION = 0.04
@@ -101,10 +102,22 @@ def geocode_town(name: str) -> tuple[float, float] | None:
     for query in extract_search_names(name):
         for suffix in ("Denmark", "Germany", ""):
             search = f"{query}, {suffix}".strip(", ") if suffix else query
-            location = geolocator.geocode(search, timeout=10)
-            if location is not None:
-                return location.latitude, location.longitude
-        time.sleep(GEOCODE_DELAY_SECONDS)
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    time.sleep(GEOCODE_DELAY_SECONDS)
+                    location = geolocator.geocode(search, timeout=10)
+                    if location is not None:
+                        return location.latitude, location.longitude
+                    break  # No location found, try next suffix
+                except GeocoderRateLimited:
+                    if attempt < max_retries - 1:
+                        wait_time = GEOCODE_DELAY_SECONDS * (2 ** attempt)
+                        print(f"Rate limited for '{search}'. Waiting {wait_time:.1f}s...")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"Rate limited for '{search}'. Skipping.")
+                        break
     return None
 
 
